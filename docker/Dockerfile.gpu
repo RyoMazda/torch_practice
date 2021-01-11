@@ -1,0 +1,43 @@
+# FROM pytorch/pytorch:1.6.0-cuda10.1-cudnn7-devel
+FROM nvidia/cuda:10.1-cudnn7-runtime-ubuntu16.04 as base
+# crying....
+# FROM nvidia/cuda:10.1-cudnn7-devel-ubuntu16.04 as base
+WORKDIR /work
+# Install Python3.9
+RUN apt-get update && apt-get install -y \
+    software-properties-common \
+    curl unzip \
+  && rm -rf /var/lib/apt/lists/*
+RUN add-apt-repository -y ppa:deadsnakes/ppa
+RUN apt-get update && apt-get install -y \
+    python3.9 \
+    python3.9-dev \
+    python3.9-distutils \
+  && rm -rf /var/lib/apt/lists/*
+RUN ln -s /usr/bin/python3.9 /usr/local/bin/python
+# Install pip
+RUN curl -sSL https://bootstrap.pypa.io/get-pip.py | python
+# poetry
+RUN curl -sSL https://raw.githubusercontent.com/python-poetry/poetry/master/get-poetry.py \
+    | python - --version 1.1.4
+ENV PATH="/root/.poetry/bin:${PATH}"
+RUN poetry config virtualenvs.create false
+# For speed up of updating the later layers
+RUN pip install 'torch>=1.7.1'
+
+
+FROM base as test
+COPY pyproject.toml poetry.lock ./
+COPY pigimaru ./pigimaru
+RUN poetry install
+COPY tests ./tests
+CMD poetry run pytest -svx --cov pigimaru
+
+
+FROM base as train
+COPY pyproject.toml poetry.lock ./
+COPY pigimaru ./pigimaru
+RUN poetry install -E train --no-dev
+# cache the model
+RUN poetry run python -c "import transformers; name = 'cl-tohoku/bert-base-japanese-whole-word-masking'; transformers.BertModel.from_pretrained(name); transformers.BertJapaneseTokenizer.from_pretrained(name);"
+

@@ -3,3 +3,6 @@ __pycache__
 .mypy_cache
 .ipynb_checkpoints
 .coverage
+
+data
+outputs
