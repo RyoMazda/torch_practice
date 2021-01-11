@@ -7,7 +7,7 @@ RUN curl -sSL https://raw.githubusercontent.com/python-poetry/poetry/master/get-
     | python - --version 1.1.4
 ENV PATH="/root/.poetry/bin:${PATH}"
 RUN poetry config virtualenvs.create false
-# For speed up of updating the later layers
+# Install torch independently of poetry
 RUN pip install 'torch>=1.7.1'
 
 

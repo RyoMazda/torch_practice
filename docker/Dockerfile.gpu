@@ -22,7 +22,7 @@ RUN curl -sSL https://raw.githubusercontent.com/python-poetry/poetry/master/get-
     | python - --version 1.1.4
 ENV PATH="/root/.poetry/bin:${PATH}"
 RUN poetry config virtualenvs.create false
-# For speed up of updating the later layers
+# Install torch independently of poetry
 RUN pip install torch==1.7.1+cu101 -f https://download.pytorch.org/whl/torch_stable.html
 
 
@@ -30,9 +30,6 @@ FROM base as test
 COPY pyproject.toml poetry.lock ./
 COPY pigimaru ./pigimaru
 RUN poetry install
-# Need to do this again since the cpu torch takes over the cuda version
-# TODO: Must be some ways to avoid this
-RUN pip install torch==1.7.1+cu101 -f https://download.pytorch.org/whl/torch_stable.html
 COPY tests ./tests
 CMD poetry run pytest -svx --cov pigimaru
 
@@ -41,9 +38,6 @@ FROM base as train
 COPY pyproject.toml poetry.lock ./
 COPY pigimaru ./pigimaru
 RUN poetry install -E train --no-dev
-# Need to do this again since the cpu torch takes over the cuda version
-# TODO: Must be some ways to avoid this
-RUN pip install torch==1.7.1+cu101 -f https://download.pytorch.org/whl/torch_stable.html
 # cache the model
 RUN poetry run python -c "import transformers; name = 'cl-tohoku/bert-base-japanese-whole-word-masking'; transformers.BertModel.from_pretrained(name); transformers.BertJapaneseTokenizer.from_pretrained(name);"
 

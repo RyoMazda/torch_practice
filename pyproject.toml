@@ -9,7 +9,9 @@ train = 'pigimaru.train:__main__'
 
 [tool.poetry.dependencies]
 python = "^3.9"
-torch = "^1.7.1"
+# It's difficult to specify torch version. I just leave it as optional for now...
+# https://github.com/python-poetry/poetry/issues/824
+torch = { "^1.7.1", optional = true }
 transformers = { version = "^4.1.1", extras = ["ja"] }
 pandas = { version = "^1.1.4", optional = true }
 scikit-learn = { version = "^0.24.0", optional = true }
