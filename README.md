@@ -16,7 +16,9 @@ docker-compose up --build test
 Using GPU
 ```sh
 docker build -f docker/Dockerfile.gpu -t gpu-test --target test .
-docker run gpu-test
+docker run --gpus all --rm -it \
+  -e CUDA_VISIBLE_DEVICES=`nvidia-smi --query-gpu=index,memory.used --format=csv,noheader,nounits | awk -F , '$2 == 0' | awk -F , '{print $1}' | head -1` \
+  gpu-test
 ```
 
 
@@ -47,8 +49,17 @@ docker-compose run --rm train \
 Using GPU
 ```sh
 docker build -f docker/Dockerfile.gpu -t gpu-train --target train .
-docker run -it -v $PWD:/work gpu-train poetry run train --debug \
-  path/to/train.tsv path/to/valid.tsv path/to/test.tsv
+docker run --gpus all --rm \
+  -e CUDA_VISIBLE_DEVICES=`nvidia-smi --query-gpu=index,memory.used --format=csv,noheader,nounits | awk -F , '$2 == 0' | awk -F , '{print $1}' | head -1` \
+  -v $PWD:/work \
+  -it \
+  gpu-train bash
+docker run --gpus all --rm \
+  -e CUDA_VISIBLE_DEVICES=`nvidia-smi --query-gpu=index,memory.used --format=csv,noheader,nounits | awk -F , '$2 == 0' | awk -F , '{print $1}' | head -1` \
+  -v $PWD:/work \
+  gpu-train \
+    poetry run train --debug \
+      path/to/train.tsv path/to/valid.tsv path/to/test.tsv
 ```
 
 
