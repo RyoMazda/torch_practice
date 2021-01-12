@@ -278,16 +278,18 @@ def __main__() -> None:
         texts=train.text.to_list(),
         labels=train.label.values,
         tokenizer=tokenizer,
-        batch_size=4 if debug else 64,
+        batch_size=4 if debug else 256,
         max_length=max_length,
     )
+    valid = valid[:1024 * 5]
     valid_loader = get_data_loader(
         texts=valid.text.to_list(),
         labels=valid.label.values,
         tokenizer=tokenizer,
-        batch_size=32 if debug else 256,
+        batch_size=32 if debug else 1024,
         max_length=max_length,
     )
+    del train, valid
     # Model
     from .models import MyBertModel
     bert_model = transformers.BertModel.from_pretrained(model_name)
@@ -296,7 +298,7 @@ def __main__() -> None:
     train_model(
         model=model,
         max_epoch=10,
-        evaluation_freq=2 if debug else 100,
+        evaluation_freq=2 if debug else 10,
         early_stopping_rounds=5,
         train_loader=train_loader,
         valid_loader=valid_loader,
