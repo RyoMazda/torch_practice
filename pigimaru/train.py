@@ -278,15 +278,15 @@ def __main__() -> None:
         texts=train.text.to_list(),
         labels=train.label.values,
         tokenizer=tokenizer,
-        batch_size=4 if debug else 256,
+        batch_size=4 if debug else 128,
         max_length=max_length,
     )
-    valid = valid[:1024 * 5]
+    valid = valid.sample(n=min(512 * 10, len(valid)))
     valid_loader = get_data_loader(
         texts=valid.text.to_list(),
         labels=valid.label.values,
         tokenizer=tokenizer,
-        batch_size=32 if debug else 1024,
+        batch_size=32 if debug else 512,
         max_length=max_length,
     )
     del train, valid
