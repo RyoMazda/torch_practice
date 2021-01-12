@@ -141,6 +141,7 @@ def _should_stop(scores: List[float], early_stopping_rounds: int) -> bool:
 def train_model(
         model: torch.nn.Module,  # type: ignore
         max_epoch: int,
+        evaluation_freq: int,
         early_stopping_rounds: int,
         train_loader: Iterable[Any],
         valid_loader: Iterable[Any],
@@ -149,23 +150,53 @@ def train_model(
         optimizer: torch.optim.Optimizer,
         output_dir: Path,
         device: torch.device = torch.device('cpu'),  # type: ignore
-) -> int:
+) -> None:
     logger.info("Optimizer's state_dict:")
     for var_name in optimizer.state_dict():
         logger.info(f"  - {var_name}\t{optimizer.state_dict()[var_name]}")
-    best_epoch = 0
-    best_score = -1e9
-    scores = []
-    start_time = time.time()
     output_dir.mkdir(parents=True, exist_ok=True)
     logger.info(f"Start training. Models will be saved at '{output_dir.absolute()}'.")
-    logger.info('Epoch\tTime[m]\tTrainLoss\tValidLoss\tScore\n')
+    logger.info('Epoch\tIteration\tTime[m]\tTrainLoss\tValidLoss\tScore\n')
+    train_losses: List[float] = []
+    best_score = -1e9
+    scores = []
+    model.train()
+    start_time = time.time()
+    n_iteration = 0
     for epoch in range(max_epoch):
-        # train
-        model.train()
-        train_losses = []
-        # train_scores = []
         for batch in train_loader:
+            if n_iteration % evaluation_freq == 0:
+                avg_train_loss = -1 if not train_losses else np.mean(train_losses)
+                train_losses.clear()
+                # Validation
+                avg_valid_loss, score = eval_model(
+                    model=model,
+                    loader=valid_loader,
+                    loss_fn=loss_fn,
+                    scoring_fn=scoring_fn,
+                    device=device,
+                )
+                model.train()
+                scores.append(score)
+                if score >= best_score:
+                    best_score = score
+                    torch.save(model.state_dict(), str(output_dir / 'model.pt'))
+                # Log
+                elapsed_minutes = round((time.time() - start_time) / 60, 2)
+                logger.info(
+                    f'{epoch}'
+                    f'\t{n_iteration}'
+                    f'\t{elapsed_minutes}'
+                    f'\t{avg_train_loss:.5f}'
+                    f'\t{avg_valid_loss:.5f}'
+                    f'\t{score:.5f}'
+                )
+                # Early Stopping
+                if _should_stop(scores, early_stopping_rounds):
+                    logger.info('Early Stopping!!')
+                    break
+            # Train
+            n_iteration += 1
             x = batch.text.to(device)
             m = batch.mask.to(device)
             y = batch.label.to(device)
@@ -174,40 +205,15 @@ def train_model(
             loss = loss_fn(out, y)
             loss.backward()  # type: ignore
             optimizer.step()
-            # For Logging
             train_losses.append(loss.item())
-        avg_train_loss = sum(train_losses) / len(train_losses)
-        # Validation
-        avg_valid_loss, score = eval_model(
-            model=model,
-            loader=valid_loader,
-            loss_fn=loss_fn,
-            scoring_fn=scoring_fn,
-            device=device,
-        )
-        scores.append(score)
-        if score >= best_score:
-            # Remove old model
-            # file name still has epoch number since this is temporary due to the lack of starage
-            (output_dir / f"epoch_{best_epoch}.pt").unlink(missing_ok=True)
-            best_score = score
-            best_epoch = epoch
-            torch.save(model.state_dict(), str(output_dir / f"epoch_{epoch}.pt"))
-        # Log
-        elapsed_minutes = round((time.time() - start_time) / 60, 2)
-        logger.info(
-            f'{epoch}'
-            f'\t{elapsed_minutes}'
-            f'\t{avg_train_loss:.5f}'
-            f'\t{avg_valid_loss:.5f}'
-            f'\t{score:.5f}'
-        )
-        # Early Stopping
-        if _should_stop(scores, early_stopping_rounds):
-            logger.info('Early Stopping!!')
-            break
-    logger.info(f"Training finished successfully! Best epoch is {best_epoch}")
-    return best_epoch
+        else:
+            continue
+        break
+    logger.info("Training finished successfully!")
+    model.load_state_dict(torch.load(  # type: ignore
+        str(output_dir / 'model.pt'),
+        map_location=device,
+    ))
 
 
 def __main__() -> None:
@@ -258,26 +264,28 @@ def __main__() -> None:
     logger.info(f"train.shape: {train.shape}")
     valid = pd.read_csv(valid_path, sep='\t')
     logger.info(f"valid.shape: {valid.shape}")
-    train = down_sample(train, down_sampling_ratio=2.0, random_seed=102)
-    valid = down_sample(valid, down_sampling_ratio=2.0, random_seed=102)
+    train = down_sample(train, down_sampling_ratio=1.0, random_seed=102)
+    valid = down_sample(valid, down_sampling_ratio=1.0, random_seed=102)
+    logger.info("After down sampling")
+    logger.info(f"train.shape: {train.shape}")
+    logger.info(f"valid.shape: {valid.shape}")
     # Tokenizer
     model_name = 'cl-tohoku/bert-base-japanese-whole-word-masking'
     tokenizer = transformers.BertJapaneseTokenizer.from_pretrained(model_name)
     # Data Loader
     max_length = 64 if debug else 512
-    batch_size = 8 if debug else 64
     train_loader = get_data_loader(
         texts=train.text.to_list(),
         labels=train.label.values,
         tokenizer=tokenizer,
-        batch_size=batch_size,
+        batch_size=4 if debug else 64,
         max_length=max_length,
     )
     valid_loader = get_data_loader(
         texts=valid.text.to_list(),
         labels=valid.label.values,
         tokenizer=tokenizer,
-        batch_size=batch_size,
+        batch_size=32 if debug else 256,
         max_length=max_length,
     )
     # Model
@@ -285,10 +293,11 @@ def __main__() -> None:
     bert_model = transformers.BertModel.from_pretrained(model_name)
     model = MyBertModel(output_dim=1, tokenizer=tokenizer, bert_model=bert_model).to(device)
     # Train
-    best_epoch = train_model(
+    train_model(
         model=model,
-        max_epoch=10 if debug else 100,
-        early_stopping_rounds=2 if debug else 5,
+        max_epoch=10,
+        evaluation_freq=2 if debug else 100,
+        early_stopping_rounds=5,
         train_loader=train_loader,
         valid_loader=valid_loader,
         loss_fn=torch.nn.BCEWithLogitsLoss(),  # type: ignore
@@ -298,10 +307,6 @@ def __main__() -> None:
         device=device,
     )
     # Evaluation by Test data
-    model.load_state_dict(torch.load(  # type: ignore
-        str(output_dir / f'epoch_{best_epoch}.pt'),
-        map_location=device,
-    ))
     model.eval()
     test = pd.read_csv(test_path, sep='\t')
     logger.info(f"test.shape: {test.shape}\tnum_pos: {(test.label==1).sum()}\tnum_neg: {(test.label==0).sum()}")
@@ -318,7 +323,9 @@ def __main__() -> None:
     plt.plot(recall, precision, marker='.')
     plt.xlabel('Recall')
     plt.ylabel('Precision')
-    plt.title(f'Precision-Recall Curve | AUC: {auc:.5f}')
+    title = f'Precision-Recall Curve | AUC: {auc:.5f}'
+    logger.info(title)
+    plt.title(title)
     plt.savefig(str(output_dir / 'precision_recall_curve.png'))
     logger.info("reason\tnum_records\tAUC")
     for target_reason in range(10):

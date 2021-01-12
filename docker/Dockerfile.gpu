@@ -1,7 +1,4 @@
-# FROM pytorch/pytorch:1.6.0-cuda10.1-cudnn7-devel
 FROM nvidia/cuda:10.1-cudnn7-runtime-ubuntu16.04 as base
-# crying....
-# FROM nvidia/cuda:10.1-cudnn7-devel-ubuntu16.04 as base
 WORKDIR /work
 # Install Python3.9
 RUN apt-get update && apt-get install -y \
